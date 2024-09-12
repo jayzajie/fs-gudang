@@ -1,15 +1,27 @@
-local QBCore = exports['qb-core']:GetCoreObject()
+-- Configuration for Framework
+Config = {}
+Config.Gudang = {}
+
+-- Load the correct framework based on configuration
+local QBCore = nil
+local ESX = nil
 local ListGudang = {}
 local ListGudangStatus = false
+
+if Config.Gudang.Framework == "qbcore" then
+    QBCore = exports['qb-core']:GetCoreObject()
+elseif Config.Gudang.Framework == "esx" then
+    ESX = exports["es_extended"]:getSharedObject()
+end
 
 local function GetAllDataGudang()
     local data = MySQL.query.await('SELECT * from gudang')
     for i=1, #data, 1 do
-    table.insert(ListGudang, {
-        kode                = data[i].kode,
-        lokasi              = data[i].lokasi,
-        owner               = data[i].owner,
-        pin                 = data[i].pin,
+        table.insert(ListGudang, {
+            kode = data[i].kode,
+            lokasi = data[i].lokasi,
+            owner = data[i].owner,
+            pin = data[i].pin,
         })
     end
     ListGudangStatus = true
@@ -33,11 +45,11 @@ end
 
 -- Fungsi Generator Kode
 local function GudangCreateHash(length)
-	local res = ""
-	for i = 1, length do
-		res = res .. string.char(math.random(97, 122))
-	end
-	return res
+    local res = ""
+    for i = 1, length do
+        res = res .. string.char(math.random(97, 122))
+    end
+    return res
 end
 
 local function SetupGudang()
@@ -67,8 +79,17 @@ RegisterNetEvent('gudang:buyGudang', function(data)
     local src = source
     local pin = data.pin
     local lokasi = data.location
-    local Player = QBCore.Functions.GetPlayer(src)
-    local identifier = Player.PlayerData.citizenid
+    local Player = nil
+    local identifier = nil
+    
+    if Config.Gudang.Framework == "qbcore" then
+        Player = QBCore.Functions.GetPlayer(src)
+        identifier = Player.PlayerData.citizenid
+    elseif Config.Gudang.Framework == "esx" then
+        Player = ESX.GetPlayerFromId(src)
+        identifier = Player.identifier
+    end
+
     local kode = GudangCreateHash(6)
     MySQL.Async.fetchScalar('SELECT COUNT(*) FROM gudang WHERE lokasi = @lokasi and kode = @kode', {
         ['@lokasi'] = lokasi,
@@ -105,8 +126,14 @@ RegisterNetEvent('gudang:buyGudang', function(data)
                     }
                     print("registered gudang: "..stash.id)
                     exports.ox_inventory:RegisterStash(stash.id, stash.label, stash.slots, stash.weight, stash.owner)
-                    TriggerClientEvent('QBCore:Notify', src, 'Kamu telah membeli gudang dengan kode: '..kode)
-                    Player.Functions.RemoveMoney('cash', Config.Gudang.price, 'beli-gudang')
+
+                    if Config.Gudang.Framework == "qbcore" then
+                        TriggerClientEvent('QBCore:Notify', src, 'Kamu telah membeli gudang dengan kode: '..kode)
+                        Player.Functions.RemoveMoney('cash', Config.Gudang.price, 'beli-gudang')
+                    elseif Config.Gudang.Framework == "esx" then
+                        TriggerClientEvent('esx:showNotification', src, 'Kamu telah membeli gudang dengan kode: '..kode)
+                        Player.removeMoney(Config.Gudang.price)
+                    end
                 else
                     TriggerClientEvent('QBCore:Notify', src, 'Gagal membeli gudang')
                 end
@@ -117,10 +144,14 @@ RegisterNetEvent('gudang:buyGudang', function(data)
     end)
 end)
 
-
 lib.callback.register('gudang:checkOwned', function(source, location)
-    local PlayerData = QBCore.Functions.GetPlayer(source).PlayerData
-    local identifier = PlayerData.citizenid
+    local identifier = nil
+    if Config.Gudang.Framework == "qbcore" then
+        identifier = QBCore.Functions.GetPlayer(source).PlayerData.citizenid
+    elseif Config.Gudang.Framework == "esx" then
+        identifier = ESX.GetPlayerFromId(source).identifier
+    end
+
     local owned = nil
     for i=1, #ListGudang, 1 do
         if ListGudang[i].lokasi == location and ListGudang[i].owner == identifier then
@@ -145,8 +176,14 @@ lib.callback.register('gudang:checkOwnedPin', function(source, data)
 end)
 
 lib.callback.register('gudang:checkMoney', function(source)
-    local Player = QBCore.Functions.GetPlayer(source)
-    return Player.PlayerData.money["cash"] >= Config.Gudang.price
+    local Player = nil
+    if Config.Gudang.Framework == "qbcore" then
+        Player = QBCore.Functions.GetPlayer(source)
+        return Player.PlayerData.money["cash"] >= Config.Gudang.price
+    elseif Config.Gudang.Framework == "esx" then
+        Player = ESX.GetPlayerFromId(source)
+        return Player.getMoney() >= Config.Gudang.price
+    end
 end)
 
 lib.callback.register('gudang:updatePin', function(source, data)
